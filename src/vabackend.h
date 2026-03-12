@@ -226,7 +226,7 @@ typedef struct
 
 extern const NVFormatInfo formatsInfo[];
 
-void appendBuffer(AppendableBuffer *ab, const void *buf, uint64_t size);
+bool appendBuffer(AppendableBuffer *ab, const void *buf, uint64_t size);
 int pictureIdxFromSurfaceId(NVDriver *ctx, VASurfaceID surf);
 NVSurface* nvSurfaceFromSurfaceId(NVDriver *drv, VASurfaceID surf);
 bool checkCudaErrors(CUresult err, const char *file, const char *function, const int line);

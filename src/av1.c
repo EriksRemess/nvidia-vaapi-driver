@@ -311,12 +311,21 @@ static void copyAV1SliceData(NVContext *ctx, NVBuffer* buf, CUVIDPICPARAMS *picP
         VASliceParameterBufferAV1 *sliceParams = &((VASliceParameterBufferAV1*) ctx->lastSliceParams)[i];
 
         //copy just the slice we're looking at
-        appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size);
+        if (!appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size)) {
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
 
         //now append the offset and size of the slice we just copied
-        appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset));
+        if (!appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset))) {
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
         offset += sliceParams->slice_data_size;
-        appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset));
+        if (!appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset))) {
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
     }
 
     picParams->nBitstreamDataLen = ctx->bitstreamBuffer.size;

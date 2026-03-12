@@ -35,21 +35,46 @@ static void copyVP8SliceParam(NVContext *ctx, NVBuffer* buffer, CUVIDPICPARAMS *
 
 static void copyVP8SliceData(NVContext *ctx, NVBuffer* buf, CUVIDPICPARAMS *picParams)
 {
+    if (buf->size < 1) {
+        LOG("VP8: empty slice data buffer");
+        ctx->renderTarget->decodeFailed = true;
+        return;
+    }
+
     // Manually extract show_frame bit
     picParams->CodecSpecific.vp8.vp8_frame_tag.show_frame = (((uint8_t*) buf->ptr)[0] & 0x10) != 0;
     
     for (unsigned int i = 0; i < ctx->lastSliceParamsCount; i++)
     {
         VASliceParameterBufferVP8 *sliceParams = &((VASliceParameterBufferVP8*) ctx->lastSliceParams)[i];
+        if (sliceParams->slice_data_offset > buf->size || sliceParams->slice_data_size > buf->size - sliceParams->slice_data_offset) {
+            LOG("VP8: invalid slice bounds (offset=%u, size=%u, buf_size=%zu)",
+                sliceParams->slice_data_offset,
+                sliceParams->slice_data_size,
+                buf->size);
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
+
         uint32_t offset = (uint32_t) ctx->bitstreamBuffer.size;
-        appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset));
+        if (!appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset))) {
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
         
         uint8_t *sliceData = PTROFF(buf->ptr, sliceParams->slice_data_offset);
         size_t sliceDataSize = sliceParams->slice_data_size + buf->offset;
+        size_t availableData = buf->size - sliceParams->slice_data_offset;
+        if (sliceDataSize > availableData) {
+            LOG("VP8: clamping slice size from %zu to %zu due to buffer limits", sliceDataSize, availableData);
+            sliceDataSize = availableData;
+        }
         
         bool isKeyFrame = (picParams->CodecSpecific.vp8.vp8_frame_tag.frame_type == 0);
         // Keyframe: need sync code 0x9d012a
-        if (isKeyFrame && (sliceData[3] == 0x9d || sliceData[4] == 0x01 || sliceData[5] == 0x2a) && ctx->firstKeyframeValid == false)
+        if (isKeyFrame && sliceDataSize >= 6 &&
+            sliceData[3] == 0x9d && sliceData[4] == 0x01 && sliceData[5] == 0x2a &&
+            ctx->firstKeyframeValid == false)
             ctx->firstKeyframeValid = true;
         
         if (ctx->firstKeyframeValid == false)
@@ -57,21 +82,29 @@ static void copyVP8SliceData(NVContext *ctx, NVBuffer* buf, CUVIDPICPARAMS *picP
             if(isKeyFrame)
             {
                 uint8_t nullBytes10[10] = {0};
-                appendBuffer(&ctx->bitstreamBuffer, nullBytes10, sizeof(nullBytes10));
-                
-                appendBuffer(&ctx->bitstreamBuffer, sliceData, sliceDataSize);
+                if (!appendBuffer(&ctx->bitstreamBuffer, nullBytes10, sizeof(nullBytes10)) ||
+                    !appendBuffer(&ctx->bitstreamBuffer, sliceData, sliceDataSize)) {
+                    ctx->renderTarget->decodeFailed = true;
+                    return;
+                }
                 
                 picParams->nBitstreamDataLen += sizeof(nullBytes10) + sliceDataSize;
             } else
             {
                 uint8_t nullBytes3[3] = {0};
-                appendBuffer(&ctx->bitstreamBuffer, nullBytes3, sizeof(nullBytes3));
-                appendBuffer(&ctx->bitstreamBuffer, sliceData, sliceDataSize);
+                if (!appendBuffer(&ctx->bitstreamBuffer, nullBytes3, sizeof(nullBytes3)) ||
+                    !appendBuffer(&ctx->bitstreamBuffer, sliceData, sliceDataSize)) {
+                    ctx->renderTarget->decodeFailed = true;
+                    return;
+                }
                 picParams->nBitstreamDataLen += sizeof(nullBytes3) + sliceDataSize;
             }
         } else {
-            appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size + buf->offset);
-            picParams->nBitstreamDataLen += sliceParams->slice_data_size + buf->offset;
+            if (!appendBuffer(&ctx->bitstreamBuffer, sliceData, sliceDataSize)) {
+                ctx->renderTarget->decodeFailed = true;
+                return;
+            }
+            picParams->nBitstreamDataLen += sliceDataSize;
         }
     }
 }

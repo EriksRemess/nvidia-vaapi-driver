@@ -264,9 +264,12 @@ static void copyHEVCSliceData(NVContext *ctx, NVBuffer* buf, CUVIDPICPARAMS *pic
 
         VASliceParameterBufferHEVC *sliceParams = &((VASliceParameterBufferHEVC*) ctx->lastSliceParams)[i];
         uint32_t offset = (uint32_t) ctx->bitstreamBuffer.size;
-        appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset));
-        appendBuffer(&ctx->bitstreamBuffer, header, sizeof(header));
-        appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size);
+        if (!appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset)) ||
+            !appendBuffer(&ctx->bitstreamBuffer, header, sizeof(header)) ||
+            !appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size)) {
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
         picParams->nBitstreamDataLen += sliceParams->slice_data_size + 3;
     }
 }

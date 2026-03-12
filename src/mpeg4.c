@@ -70,8 +70,11 @@ static void copyMPEG4SliceData(NVContext *ctx, NVBuffer* buf, CUVIDPICPARAMS *pi
         VASliceParameterBufferMPEG4 *sliceParams = &((VASliceParameterBufferMPEG4*) ctx->lastSliceParams)[i];
         LOG("here: %d", sliceParams->macroblock_offset);
         uint32_t offset = (uint32_t) ctx->bitstreamBuffer.size;
-        appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset));
-        appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size);
+        if (!appendBuffer(&ctx->sliceOffsets, &offset, sizeof(offset)) ||
+            !appendBuffer(&ctx->bitstreamBuffer, PTROFF(buf->ptr, sliceParams->slice_data_offset), sliceParams->slice_data_size)) {
+            ctx->renderTarget->decodeFailed = true;
+            return;
+        }
         picParams->nBitstreamDataLen += sliceParams->slice_data_size;
     }
 }
